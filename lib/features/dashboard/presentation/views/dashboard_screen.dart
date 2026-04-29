@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../core/theme.dart';
+import '../../../../core/theme/app_theme.dart';
+import '../viewmodels/dashboard_viewmodel.dart';
 
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final dashboardState = ref.watch(dashboardViewModelProvider);
+
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
       appBar: AppBar(
@@ -15,27 +19,39 @@ class DashboardScreen extends StatelessWidget {
         elevation: 0,
         actions: [
           IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () => ref.read(dashboardViewModelProvider.notifier).fetchSummary(),
+          ),
+          IconButton(
             icon: const Icon(Icons.person_outline),
             onPressed: () {},
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildSavingsCard(context),
-            const SizedBox(height: 30),
-            Text(
-              'Tax Categories',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 15),
-            _buildCategoryGrid(),
-          ],
-        ),
-      ),
+      body: dashboardState.isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : dashboardState.error != null
+              ? Center(child: Text('Error: ${dashboardState.error}'))
+              : RefreshIndicator(
+                  onRefresh: () => ref.read(dashboardViewModelProvider.notifier).fetchSummary(),
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(20),
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildSavingsCard(context, dashboardState.summary?.taxSavingsEstimate ?? 0),
+                        const SizedBox(height: 30),
+                        Text(
+                          'Tax Categories',
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 15),
+                        _buildCategoryGrid(dashboardState.summary?.categories ?? {}),
+                      ],
+                    ),
+                  ),
+                ),
       floatingActionButton: FloatingActionButton.large(
         onPressed: () {
           context.push('/scanner');
@@ -47,7 +63,7 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildSavingsCard(BuildContext context) {
+  Widget _buildSavingsCard(BuildContext context, double savings) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(25),
@@ -74,9 +90,9 @@ class DashboardScreen extends StatelessWidget {
             style: TextStyle(color: Colors.white70, fontSize: 16),
           ),
           const SizedBox(height: 10),
-          const Text(
-            '฿ 12,450.00',
-            style: TextStyle(
+          Text(
+            '฿ ${savings.toStringAsFixed(2)}',
+            style: const TextStyle(
               color: Colors.white,
               fontSize: 36,
               fontWeight: FontWeight.bold,
@@ -95,7 +111,7 @@ class DashboardScreen extends StatelessWidget {
                 Icon(Icons.trending_up, color: Colors.white, size: 16),
                 SizedBox(width: 8),
                 Text(
-                  '15% Tax Bracket',
+                  'Dynamic Tax Bracket',
                   style: TextStyle(color: Colors.white, fontSize: 12),
                 ),
               ],
@@ -106,13 +122,12 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildCategoryGrid() {
-    final categories = [
-      {'name': 'Insurance', 'icon': Icons.security, 'amount': 4500.0},
-      {'name': 'Education', 'icon': Icons.school, 'amount': 1200.0},
-      {'name': 'Shopping', 'icon': Icons.shopping_bag, 'amount': 850.0},
-      {'name': 'Donation', 'icon': Icons.favorite, 'amount': 500.0},
-    ];
+  Widget _buildCategoryGrid(Map<String, double> categories) {
+    if (categories.isEmpty) {
+      return const Center(child: Text('No receipts scanned yet.'));
+    }
+
+    final List<MapEntry<String, double>> categoryList = categories.entries.toList();
 
     return GridView.builder(
       shrinkWrap: true,
@@ -123,9 +138,19 @@ class DashboardScreen extends StatelessWidget {
         mainAxisSpacing: 15,
         childAspectRatio: 1.1,
       ),
-      itemCount: categories.length,
+      itemCount: categoryList.length,
       itemBuilder: (context, index) {
-        final cat = categories[index];
+        final entry = categoryList[index];
+        final name = entry.key;
+        final amount = entry.value;
+
+        IconData icon = Icons.receipt_long;
+        if (name == 'Insurance') icon = Icons.security;
+        if (name == 'Education') icon = Icons.school;
+        if (name == 'Shopping' || name == 'General') icon = Icons.shopping_bag;
+        if (name == 'Donation') icon = Icons.favorite;
+        if (name == 'Government_Project') icon = Icons.account_balance;
+
         return Container(
           padding: const EdgeInsets.all(15),
           decoration: BoxDecoration(
@@ -142,15 +167,18 @@ class DashboardScreen extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(cat['icon'] as IconData, color: AppTheme.primaryColor, size: 30),
+              Icon(icon, color: AppTheme.primaryColor, size: 30),
               const SizedBox(height: 10),
               Text(
-                cat['name'] as String,
+                name,
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: 5),
               Text(
-                '฿ ${(cat['amount'] as double).toStringAsFixed(0)}',
+                '฿ ${amount.toStringAsFixed(0)}',
                 style: TextStyle(color: Colors.grey[600], fontSize: 14),
               ),
             ],

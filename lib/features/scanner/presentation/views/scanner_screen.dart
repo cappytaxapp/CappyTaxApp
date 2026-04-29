@@ -1,20 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../core/theme.dart';
+import '../../../../core/theme/app_theme.dart';
+import '../viewmodels/scanner_viewmodel.dart';
 
-class ScannerScreen extends StatefulWidget {
+class ScannerScreen extends ConsumerStatefulWidget {
   const ScannerScreen({super.key});
 
   @override
-  State<ScannerScreen> createState() => _ScannerScreenState();
+  ConsumerState<ScannerScreen> createState() => _ScannerScreenState();
 }
 
-class _ScannerScreenState extends State<ScannerScreen> {
+class _ScannerScreenState extends ConsumerState<ScannerScreen> {
   CameraController? _controller;
   List<CameraDescription> _cameras = [];
-  bool _isInitializing = true;
-  bool _isProcessing = false;
 
   @override
   void initState() {
@@ -37,9 +37,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
       debugPrint('Camera initialization error: $e');
     } finally {
       if (mounted) {
-        setState(() {
-          _isInitializing = false;
-        });
+        ref.read(scannerViewModelProvider.notifier).setInitializing(false);
       }
     }
   }
@@ -51,46 +49,38 @@ class _ScannerScreenState extends State<ScannerScreen> {
   }
 
   Future<void> _takePicture() async {
-    if (_controller == null || !_controller!.value.isInitialized || _isProcessing) {
+    final scannerState = ref.read(scannerViewModelProvider);
+    if (_controller == null || !_controller!.value.isInitialized || scannerState.isProcessing) {
       return;
     }
 
-    setState(() {
-      _isProcessing = true;
-    });
-
     try {
       final XFile image = await _controller!.takePicture();
-      // Handle the captured image (Send to FastAPI)
-      _processImage(image);
+      final success = await ref.read(scannerViewModelProvider.notifier).processImage(image);
+      
+      if (mounted) {
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Receipt scanned successfully!'), backgroundColor: AppTheme.primaryColor),
+          );
+          context.pop();
+        } else {
+          final error = ref.read(scannerViewModelProvider).error;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error: ${error ?? "Unknown error"}'), backgroundColor: Colors.red),
+          );
+        }
+      }
     } catch (e) {
       debugPrint('Error taking picture: $e');
-      setState(() {
-        _isProcessing = false;
-      });
-    }
-  }
-
-  Future<void> _processImage(XFile image) async {
-    // TODO: Send image to FastAPI /scan-receipt endpoint using http package
-    // For now, simulate network delay
-    await Future.delayed(const Duration(seconds: 2));
-    
-    if (mounted) {
-      setState(() {
-        _isProcessing = false;
-      });
-      // Show success and pop
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Receipt scanned successfully!'), backgroundColor: AppTheme.primaryColor),
-      );
-      context.pop();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isInitializing) {
+    final scannerState = ref.watch(scannerViewModelProvider);
+
+    if (scannerState.isInitializing) {
       return const Scaffold(
         backgroundColor: Colors.black,
         body: Center(child: CircularProgressIndicator(color: AppTheme.primaryColor)),
@@ -108,16 +98,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // Camera Preview
           Positioned.fill(
             child: CameraPreview(_controller!),
           ),
-          
-          // Overlay UI
           SafeArea(
             child: Column(
               children: [
-                // Top Bar
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                   child: Row(
@@ -133,17 +119,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
                       ),
                       IconButton(
                         icon: const Icon(Icons.flash_on, color: Colors.white, size: 30),
-                        onPressed: () {
-                          // Toggle flash
-                        },
+                        onPressed: () {},
                       ),
                     ],
                   ),
                 ),
-                
                 const Spacer(),
-                
-                // Guidance Box Overlay (Visual only)
                 Container(
                   width: MediaQuery.of(context).size.width * 0.8,
                   height: MediaQuery.of(context).size.height * 0.5,
@@ -152,10 +133,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
                     borderRadius: BorderRadius.circular(16),
                   ),
                 ),
-                
                 const Spacer(),
-                
-                // Bottom Controls
                 Container(
                   padding: const EdgeInsets.only(bottom: 40.0, top: 20.0),
                   color: Colors.black54,
@@ -164,9 +142,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
                     children: [
                       IconButton(
                         icon: const Icon(Icons.photo_library, color: Colors.white, size: 30),
-                        onPressed: () {
-                          // Open gallery
-                        },
+                        onPressed: () {},
                       ),
                       GestureDetector(
                         onTap: _takePicture,
@@ -176,10 +152,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             border: Border.all(color: Colors.white, width: 4),
-                            color: _isProcessing ? AppTheme.primaryColor : Colors.transparent,
+                            color: scannerState.isProcessing ? AppTheme.primaryColor : Colors.transparent,
                           ),
                           child: Center(
-                            child: _isProcessing 
+                            child: scannerState.isProcessing 
                                 ? const CircularProgressIndicator(color: Colors.white)
                                 : Container(
                                     width: 65,
@@ -194,9 +170,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
                       ),
                       IconButton(
                         icon: const Icon(Icons.description, color: Colors.white, size: 30),
-                        onPressed: () {
-                          // Switch to E-Tax PDF mode
-                        },
+                        onPressed: () {},
                       ),
                     ],
                   ),
